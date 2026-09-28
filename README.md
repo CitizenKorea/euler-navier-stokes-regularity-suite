@@ -42,7 +42,7 @@ $$\lambda_{j, k} = \frac{2}{\Delta x^2}\left(1 - \cos\frac{j\pi}{M_x + 1}\right)
 ### 1. Newton–Kantorovich Contraction Verification
 Casting the dynamic rescaling formulation into an autonomous operator eigenvalue problem $\partial_\tau \mathbf{v} = \mathcal{L}_{\mathrm{proj}} \mathbf{v}$, we deploy Arb-standard interval arithmetic and the Newton–Kantorovich theorem to audit the leading transverse mode:
 
-#### Newton–Kantorovich Audit Metrics ($N = 48$, $\operatorname{dim} = 4,232$)
+#### Newton–Kantorovich Audit Metrics ($N = 48$, $\mathrm{dim} = 4,232$)
 
 | Diagnostic Parameter | Symbol | Certified Computational Value | Evaluation Status |
 | :--- | :---: | :---: | :---: |
@@ -53,12 +53,12 @@ Casting the dynamic rescaling formulation into an autonomous operator eigenvalue
 | **Lipschitz Constant** | $K$ | $2.0000$ | Analytical Bound |
 | **Kantorovich Contraction Metric** | $\mathbf{h = 2YMK}$ | $\mathbf{7.61187303 \times 10^{-9} \ll 0.5}$ | **[PASS] Certified Contraction** |
 | **Certified Enclosure Ball Radius** | $\mathbf{r^*}$ | $\mathbf{9.09539447 \times 10^{-8}}$ | **Unconditionally Enclosed** |
-| **Certified Real Part Lower Bound** | $\mathbf{\operatorname{Re}(\lambda_u^*)}$ | $\mathbf{+6.43821898 > 0.0}$ | **[PASS] Unstable Spectrum** |
+| **Certified Real Part Lower Bound** | $\mathbf{\mathrm{Re}(\lambda_u^*)}$ | $\mathbf{+6.43821898 > 0.0}$ | **[PASS] Unstable Spectrum** |
 
 ### 2. The Measure-Zero Classification Theorem ($\mu = 0$)
-Because the leading eigenvalue possesses a strictly positive real part ($\operatorname{Re}(\lambda_u^*) \ge +6.4382$), the local stable manifold $\mathcal{W}^s(W^*, \Theta^*)$ leading to singular collapse satisfies:
+Because the leading eigenvalue possesses a strictly positive real part ($\mathrm{Re}(\lambda_u^*) \ge +6.4382$), the local stable manifold $\mathcal{W}^s(W^*, \Theta^*)$ leading to singular collapse satisfies:
 
-$$\operatorname{codim}(\mathcal{W}^s) = \operatorname{dim}(E^u) \ge 1$$
+$$\mathrm{codim}(\mathcal{W}^s) = \mathrm{dim}(E^u) \ge 1$$
 
 Under any non-degenerate Gaussian measure $\gamma$ or prevalence metric in $H^s(\Omega)$, the set of initial data terminating in a finite-time blowup has rigorous measure zero:
 
@@ -146,7 +146,7 @@ The repository is organized into three distinct verification packages correspond
 * **`01_dynamic_rescaling_autonomous_system.py`**: Coordinate rescaling and autonomous steady-state fixed point solver.
 * **`02_gauge_projected_linearized_operator.py`**: $2 \times 2$ block Fréchet operator assembly with gauge mode decoupling.
 * **`03_interval_biot_savart_evaluator.py`**: Rigorous complex ball arithmetic Biot–Savart integral kernel bounds.
-* **`09_newton_kantorovich_spectral_instability_cap.py`**: Certified Newton–Kantorovich contraction verification engine certifying $\operatorname{Re}(\lambda_u^*) \ge +6.4382$.
+* **`09_newton_kantorovich_spectral_instability_cap.py`**: Certified Newton–Kantorovich contraction verification engine certifying $\mathrm{Re}(\lambda_u^*) \ge +6.4382$.
 * **`10_measure_zero_prevalence_classifier.py`**: Infinite-dimensional stable manifold codimension and shy set classifier.
 
 ---
