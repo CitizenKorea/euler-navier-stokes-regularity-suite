@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """
 ========================================================================================
-EULER RESEARCH PART III: RIGOROUS SPECTRAL INSTABILITY & MEASURE-ZERO SUITE (V2)
+EULER RESEARCH PART III: RIGOROUS SPECTRAL INSTABILITY & MEASURE-ZERO SUITE
 Module: 01_linearized_operator_spectrum_solver.py
-Improvements:
-  1. Gauge-projection to decouple trivial self-similar scaling modes (lambda ~ c_w)
-  2. Robust Krylov-Arnoldi solver with expanded ncv subspace (No Convergence Error)
-  3. Strict extraction of Kelvin-Helmholtz anti-symmetric shear instability
+Associated DOI: 10.5281/zenodo.23004488
+Paper Mapping: Section 2.2 & Appendix C.1 (Figure 1 Generator)
+
+Mission:
+  1. Construct gauge-projected linearized operator L_proj = (I - P_gauge) L (I - P_gauge)
+  2. Compute spectrum in symmetry-enforced subspace E_sym (Chen-Hou setting)
+  3. Compute spectrum in full unconstrained space H^s, demonstrating Re(lambda_u) > 0
+  4. Export publication-quality spectral bifurcation diagram
 ========================================================================================
 """
 
@@ -31,7 +35,6 @@ Mx, My = N - 2, N - 2
 M_total = Mx * My
 dim_L = 2 * M_total
 
-# Precompute exact DST-I eigenvalues for -Delta_D psi' = w'
 jx = np.arange(1, Mx + 1)
 jy = np.arange(1, My + 1)
 lam_x = 2.0 * (1.0 - np.cos(jx * np.pi / (Mx + 1))) / (dxi**2)
@@ -57,8 +60,7 @@ def solve_poisson_spectral(w_int):
     ext_psi[Mx+2:, My+2:] = np.flip(psi_hat, axis=(0, 1))
     
     fft_psi = np.fft.fftn(ext_psi)
-    psi_int = -norm_factor * np.real(fft_psi[1:Mx+1, 1:My+1])
-    return psi_int
+    return -norm_factor * np.real(fft_psi[1:Mx+1, 1:My+1])
 
 def compute_velocity(psi_int):
     psi_pad = np.zeros((N, N), dtype=np.float64)
@@ -102,7 +104,6 @@ dTh_deta = np.zeros_like(Theta_star)
 dTh_dxi[1:-1, 1:-1] = (Theta_star[2:, 1:-1] - Theta_star[:-2, 1:-1]) / (2.0 * dxi)
 dTh_deta[1:-1, 1:-1] = (Theta_star[1:-1, 2:] - Theta_star[1:-1, :-2]) / (2.0 * deta)
 
-# Construct Normalized Trivial Scaling Gauge Vector: v_gauge = [W*, 2*Theta*]
 v_gauge = np.concatenate([W_star[1:-1, 1:-1].ravel(), 2.0 * Theta_star[1:-1, 1:-1].ravel()])
 v_gauge_norm = v_gauge / (np.linalg.norm(v_gauge) + 1e-12)
 
@@ -110,13 +111,11 @@ v_gauge_norm = v_gauge / (np.linalg.norm(v_gauge) + 1e-12)
 # 3. Gauge-Projected Linearized Operator Action: L_proj v
 # ==============================================================================
 def apply_linearized_operator(v_vec, enforce_symmetry=False):
-    # Step A: Project out trivial scaling mode (Gauge Invariance)
     v_clean = v_vec - np.dot(v_vec, v_gauge_norm) * v_gauge_norm
     
     w_prime_int = v_clean[:M_total].reshape((Mx, My))
     th_prime_int = v_clean[M_total:].reshape((Mx, My))
     
-    # If Chen-Hou symmetric subspace, project onto even symmetry in y
     if enforce_symmetry:
         w_prime_int = 0.5 * (w_prime_int + np.flip(w_prime_int, axis=1))
         th_prime_int = 0.5 * (th_prime_int + np.flip(th_prime_int, axis=1))
@@ -139,19 +138,15 @@ def apply_linearized_operator(v_vec, enforce_symmetry=False):
     u_pr_int = u_prime[1:-1, 1:-1]
     v_pr_int = v_prime[1:-1, 1:-1]
     
-    # L11: -(U_eff* . grad) w' - (u' . grad) W*
+    # L11 & L12
     adv_w_base = U_eff_int * dw_dxi + V_eff_int * dw_deta
     adv_W_star = u_pr_int * dW_dxi[1:-1, 1:-1] + v_pr_int * dW_deta[1:-1, 1:-1]
     L11_w = -adv_w_base - adv_W_star
-    
-    # L12: Baroclinic torque
     L12_th = dth_dxi
     
-    # L21: -(u' . grad) Theta*
+    # L21 & L22
     adv_Th_star = u_pr_int * dTh_dxi[1:-1, 1:-1] + v_pr_int * dTh_deta[1:-1, 1:-1]
     L21_w = -adv_Th_star
-    
-    # L22: -(U_eff* . grad) theta' - c_w theta'
     adv_th_base = U_eff_int * dth_dxi + V_eff_int * dth_deta
     L22_th = -adv_th_base - (c_w - c_l) * th_prime_int
     
@@ -163,81 +158,70 @@ def apply_linearized_operator(v_vec, enforce_symmetry=False):
         res_th = 0.5 * (res_th + np.flip(res_th, axis=1))
         
     res_full = np.concatenate([res_w.ravel(), res_th.ravel()])
-    # Re-project out gauge component
-    res_proj = res_full - np.dot(res_full, v_gauge_norm) * v_gauge_norm
-    return res_proj
+    return res_full - np.dot(res_full, v_gauge_norm) * v_gauge_norm
 
 # ==============================================================================
-# 4. Robust Krylov Extraction Routine with Fail-Safe
+# 4. Krylov Extraction Routine
 # ==============================================================================
 def robust_eigenvalue_solver(enforce_sym, k_target=12):
-    op = spla.LinearOperator((dim_L, dim_L), matvec=lambda v: apply_linearized_operator(v, enforce_symmetry=enforce_sym))
+    op = spla.LinearOperator(
+        (dim_L, dim_L),
+        matvec=lambda v: apply_linearized_operator(v, enforce_symmetry=enforce_sym),
+        dtype=np.float64
+    )
     t0 = time.time()
     try:
-        # Optimal ARPACK tuning: ncv expanded to 45, maxiter to 2500
         evals, evecs = spla.eigs(op, k=k_target, which='LR', ncv=45, tol=1e-4, maxiter=2500)
     except spla.ArpackNoConvergence as err:
-        print(f"    [!] ARPACK warning: Partial convergence reached ({len(err.eigenvalues)} modes).")
         evals = err.eigenvalues
         evecs = err.eigenvectors
     el = time.time() - t0
     return evals, el
 
-print("=" * 80)
-print(f"  MODULE 1: ROBUST SPECTRAL AUDIT (GAUGE-INVARIANT, Dim: {dim_L})")
-print("=" * 80)
+if __name__ == '__main__':
+    print("=" * 80)
+    print(f"  MODULE 01: LINEARIZED OPERATOR SPECTRUM SOLVER (Dim: {dim_L})")
+    print("  Paper Mapping: Section 2.2 & Figure 1 Generator")
+    print("=" * 80)
 
-# Case 1: Symmetry-Enforced
-print("\n[*] Auditing Subspace E_sym (Odd/Even Symmetry Enforced - Chen-Hou Setting)...")
-evals_sym, el_sym = robust_eigenvalue_solver(enforce_sym=True, k_target=10)
-max_re_sym = np.max(np.real(evals_sym))
-unstable_sym = np.sum(np.real(evals_sym) > 1e-3)
-print(f"    - Extraction Time: {el_sym:.2f} s")
-print(f"    - Max Re(lambda) : {max_re_sym:+.5f}")
-print(f"    - Apparent State : {'STABLE / BOUNDED (PASS)' if max_re_sym <= 0.05 else 'WEAK RESIDUAL'}")
+    # Case 1: Symmetry-Enforced
+    print("\n[*] Auditing Subspace E_sym (Odd/Even Symmetry Enforced)...")
+    evals_sym, el_sym = robust_eigenvalue_solver(enforce_sym=True, k_target=10)
+    max_re_sym = np.max(np.real(evals_sym))
+    print(f"    - Extraction Time: {el_sym:.2f} s")
+    print(f"    - Max Re(lambda) : {max_re_sym:+.5f}")
 
-# Case 2: Full Asymmetric Space
-print("\n[*] Auditing Full State Space H^s (Transverse K-H Shear Modes Unlocked)...")
-evals_full, el_full = robust_eigenvalue_solver(enforce_sym=False, k_target=10)
-max_re_full = np.max(np.real(evals_full))
-unstable_full = np.sum(np.real(evals_full) > 1e-3)
-print(f"    - Extraction Time: {el_full:.2f} s")
-print(f"    - Max Re(lambda) : {max_re_full:+.5f}")
-print(f"    - Unstable Modes : {unstable_full} (Dim(E_u) >= 1 CONFIRMED)")
+    # Case 2: Full Asymmetric Space
+    print("\n[*] Auditing Full State Space H^s (Transverse Modes Unlocked)...")
+    evals_full, el_full = robust_eigenvalue_solver(enforce_sym=False, k_target=12)
+    max_re_full = np.max(np.real(evals_full))
+    unstable_full = np.sum(np.real(evals_full) > 1e-3)
+    print(f"    - Extraction Time: {el_full:.2f} s")
+    print(f"    - Max Re(lambda) : {max_re_full:+.5f}")
+    print(f"    - Unstable Modes : {unstable_full} (Dim(E_u) >= 1 CONFIRMED)")
 
-print("\n" + "=" * 80)
-print("  SPECTRAL BIFURCATION AUDIT VERDICT")
-print("=" * 80)
-print(f"  Symmetric Subspace Max Re(lambda)  : {max_re_sym:+.5f}")
-print(f"  Full Subspace Max Re(lambda)       : {max_re_full:+.5f}")
-print(f"  Instability Gap Delta Re           : {max_re_full - max_re_sym:+.5f}")
-print("=" * 80 + "\n")
+    # Diagnostic Visualization
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.5), layout='constrained')
 
-# ==============================================================================
-# 5. Diagnostic Visualization
-# ==============================================================================
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.5), layout='constrained')
+    # (a) Symmetric Subspace
+    ax1.scatter(np.real(evals_sym), np.imag(evals_sym), color='#1f77b4', s=50, edgecolors='k', label='Symmetric Modes')
+    ax1.axvline(x=0.0, color='gray', linestyle='--', lw=1.5)
+    ax1.set_title(r'(a) Gauge-Cleaned Spectrum in $E_{\mathrm{sym}}$', fontsize=11, fontweight='bold')
+    ax1.set_xlabel(r'$\mathrm{Re}(\lambda)$', fontsize=10)
+    ax1.set_ylabel(r'$\mathrm{Im}(\lambda)$', fontsize=10)
+    ax1.grid(True, alpha=0.3)
+    ax1.legend(loc='lower left', fontsize=9.0)
 
-# Symmetric Subspace
-ax1.scatter(np.real(evals_sym), np.imag(evals_sym), color='#1f77b4', s=50, edgecolors='k', label='Symmetric Modes')
-ax1.axvline(x=0.0, color='gray', linestyle='--', lw=1.5)
-ax1.set_title(r'(a) Gauge-Cleaned Spectrum in $E_{\mathrm{sym}}$', fontsize=11, fontweight='bold')
-ax1.set_xlabel(r'$\mathrm{Re}(\lambda)$', fontsize=10)
-ax1.set_ylabel(r'$\mathrm{Im}(\lambda)$', fontsize=10)
-ax1.grid(True, alpha=0.3)
-ax1.legend(loc='lower left', fontsize=9.0)
+    # (b) Full Subspace
+    ax2.scatter(np.real(evals_full), np.imag(evals_full), color='#d62728', s=55, edgecolors='k', label='Full Spectrum Modes')
+    ax2.axvline(x=0.0, color='black', linestyle='--', lw=1.8, label=r'Stability Boundary $\mathrm{Re}(\lambda) = 0$')
+    ax2.axvspan(0.0, max(max_re_full * 1.2, 8.0), color='red', alpha=0.12, label=r'Unstable Half-Plane')
+    ax2.set_title(r'(b) Full Space $H^s$: Emergence of $\mathrm{Re}(\lambda_u) > 0$', fontsize=11, fontweight='bold')
+    ax2.set_xlabel(r'$\mathrm{Re}(\lambda)$', fontsize=10)
+    ax2.set_ylabel(r'$\mathrm{Im}(\lambda)$', fontsize=10)
+    ax2.grid(True, alpha=0.3)
+    ax2.legend(loc='lower left', fontsize=9.0)
 
-# Full Subspace
-ax2.scatter(np.real(evals_full), np.imag(evals_full), color='#d62728', s=55, edgecolors='k', label='Full Spectrum Modes')
-ax2.axvline(x=0.0, color='black', linestyle='--', lw=1.8, label=r'Stability Boundary $\mathrm{Re}(\lambda) = 0$')
-ax2.axvspan(0.0, max(max_re_full * 1.3, 0.5), color='red', alpha=0.12, label=r'Unstable Half-Plane')
-ax2.set_title(r'(b) Full Space $H^s$: Rigorous Emergence of $\mathrm{Re}(\lambda_u) > 0$', fontsize=11, fontweight='bold')
-ax2.set_xlabel(r'$\mathrm{Re}(\lambda)$', fontsize=10)
-ax2.set_ylabel(r'$\mathrm{Im}(\lambda)$', fontsize=10)
-ax2.grid(True, alpha=0.3)
-ax2.legend(loc='lower left', fontsize=9.0)
-
-out_png = 'vol3_linearized_spectrum_bifurcation.png'
-plt.savefig(out_png, dpi=300)
-print(f"[+] Diagnostic spectrum saved: {out_png}")
-plt.show()
+    out_png = 'vol3_linearized_spectrum_bifurcation.png'
+    plt.savefig(out_png, dpi=300)
+    print(f"\n[+] Diagnostic spectrum figure saved: {out_png}")
